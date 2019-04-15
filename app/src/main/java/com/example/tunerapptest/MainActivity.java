@@ -1,83 +1,155 @@
 package com.example.tunerapptest;
 
 import android.Manifest;
-import android.content.Context;
 import android.content.pm.PackageManager;
-import android.media.MediaPlayer;
 import android.media.MediaRecorder;
-import android.os.Bundle;
+import android.os.Handler;
+import android.os.Message;
 import android.support.annotation.NonNull;
 import android.support.v4.app.ActivityCompat;
 import android.support.v7.app.AppCompatActivity;
+import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
-import android.view.ViewGroup;
 import android.widget.Button;
-import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import java.io.IOException;
+import java.util.ArrayList;
 
 import static java.lang.Thread.sleep;
 
 public class MainActivity extends AppCompatActivity {
 
-    private static final String LOG_TAG = "AudioRecordTest";
-    private static final int REQUEST_RECORD_AUDIO_PERMISSION = 200;
-    private static String fileName = null;
-
-    private RecordButton recordButton;
-    private MediaRecorder recorder;
-    private String amp;
+    // Instance Variables
+    Button recordButton;
+    TextView display;
+    MediaRecorder recorder;
+    boolean mStartRecording = true;
+    ArrayList<Notes> intensityFunction = new ArrayList<>();
+    double[] guitarF = new double[] {82.41, 110, 146.8, 196, 246.9, 329.6}; // Add to note class later
+    double maxCenterOfMass;
+    double frequency;
+    float time = 0;
 
     // Requesting permission to RECORD_AUDIO
     private boolean permissionToRecordAccepted = false;
-    private String [] permissions = {Manifest.permission.RECORD_AUDIO};
+    private String[] permissions = {Manifest.permission.RECORD_AUDIO};
 
     @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
+                                           @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        switch (requestCode){
-            case REQUEST_RECORD_AUDIO_PERMISSION:
-                permissionToRecordAccepted  = grantResults[0] == PackageManager.PERMISSION_GRANTED;
+        switch (requestCode) {
+            case RECORD_PERMISSION:
+                permissionToRecordAccepted = grantResults[0] ==
+                        PackageManager.PERMISSION_GRANTED;
                 break;
         }
-        if (!permissionToRecordAccepted ) finish();
+        if (!permissionToRecordAccepted) finish();
+    }
+
+
+    // Constants
+    final static int RECORD_PERMISSION = 100;
+    final static String LOG_TAG = "Audio Test Prepare";
+    private static String fileName = null;
+    private static int AMP_REF = 1;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
+
+        fileName = getExternalCacheDir().getAbsolutePath();
+        fileName += "/audiorecordtest.3gp";
+        ActivityCompat.requestPermissions(this, permissions,
+                RECORD_PERMISSION);
+
+        // WireWidgets - record button and display textview
+        recordButton = findViewById(R.id.button_main_record);
+        display = findViewById(R.id.textView_main_display);
+
+        recordButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                onRecord(mStartRecording);
+                if (mStartRecording) {
+                    recordButton.setText("Stop recording");
+                    final Handler handler=new Handler();
+                    handler.post(new Runnable(){
+                        @Override
+                        public void run() {
+                            // upadte textView here
+                            if (recorder != null) {
+                                int amplitude = recorder.getMaxAmplitude();
+                                double power_db = 20 * Math.log10(amplitude/AMP_REF); //Converter to dB (for now)
+                                double intensity = Math.pow(10, power_db/10 -12);
+
+                                //Here you can put condition (low/high)
+                                Log.i("AMPLITUDE", new Integer(amplitude).toString());
+                                //Log.i("AMPLITUDE", ""+intensity);
+                                //display.setText("Intensity: " + intensity);
+
+                                //Fourier Transform
+                                if (amplitude >= 5000) {
+                                    intensityFunction.add(new Notes(intensity, time));
+                                    for (int f = 0; f < guitarF.length; f++) {
+                                        if (calculateFT(intensityFunction, guitarF[f], time) > maxCenterOfMass) {
+                                            maxCenterOfMass = calculateFT(intensityFunction, guitarF[f], time);
+                                            frequency = f;
+                                        }
+                                    }
+                                    time += 200;
+                                    //display.setText(determineNote(frequency));
+                                    display.setText(""+frequency);
+                                } else {
+                                    ArrayList<Notes> intensityFunction = new ArrayList<>();
+                                    time = 0;
+                                    maxCenterOfMass = 0;
+                                }
+                            }
+                            handler.postDelayed(this,200); // set time here to refresh textView
+                        }
+                    });
+                } else {
+                    recordButton.setText("Start recording");
+                }
+                mStartRecording = !mStartRecording;
+            }
+        });
 
     }
 
-    private void onRecord(boolean start) {
-        if (start) {
-            startRecording();
+    private String determineNote(double frequency) {
+        if (frequency == guitarF[0]) {
+            return "E";
+        } else if (frequency == guitarF[1]) {
+            return "A";
+        } else if (frequency == guitarF[2]) {
+            return "D";
+        } else if (frequency == guitarF[3]) {
+            return "G";
+        } else if (frequency == guitarF[4]) {
+            return "B";
         } else {
-            stopRecording();
+            return "E";
         }
     }
 
-//    private void onPlay(boolean start) {
-//        if (start) {
-//            startPlaying();
-//        } else {
-//            stopPlaying();
-//        }
-//    }
-//
-//    private void startPlaying() {
-//        player = new MediaPlayer();
-//        try {
-//            player.setDataSource(fileName);
-//            player.prepare();
-//            player.start();
-//        } catch (IOException e) {
-//            Log.e(LOG_TAG, "prepare() failed");
-//        }
-//    }
-//
-//    private void stopPlaying() {
-//        player.release();
-//        player = null;
-//    }
+    private double calculateFT(ArrayList<Notes> intensityF, double frequency, float time) {
+        ArrayList<Double> xCoordinate = new ArrayList<>();
+        for (int i = 0; i < intensityF.size(); i++) {
+            xCoordinate.add(intensityF.get(i).getIntensity()*Math.pow(Math.E, -2*Math.PI*frequency*time));
+        }
+        double sum = 0;
+        for (int i = 0; i < xCoordinate.size(); i++) {
+            sum += xCoordinate.get(i);
+        }
+        return sum / intensityF.size();
+    }
 
+    // Recording Methods
     private void startRecording() {
         recorder = new MediaRecorder();
         recorder.setAudioSource(MediaRecorder.AudioSource.MIC);
@@ -94,104 +166,18 @@ public class MainActivity extends AppCompatActivity {
         recorder.start();
     }
 
+    private void onRecord(boolean start) {
+        if (start) {
+            startRecording();;
+        } else {
+            stopRecording();
+        }
+    }
+
     private void stopRecording() {
         recorder.stop();
         recorder.release();
         recorder = null;
-    }
-
-    class RecordButton extends android.support.v7.widget.AppCompatButton {
-        boolean mStartRecording = true;
-
-        OnClickListener clicker = new OnClickListener() {
-            public void onClick(View v) {
-                onRecord(mStartRecording);
-                if (mStartRecording) {
-                    setText("Stop recording");
-                    mStartRecording = !mStartRecording;
-                    new Thread(new Runnable() {
-                        public void run() {
-                            int i = 0;
-                            while(i == 0) {
-
-                                try {
-                                    sleep(250);
-                                } catch (InterruptedException e) {
-                                    e.printStackTrace();
-                                }
-                                if (recorder != null) {
-                                    //Here you can put condition (low/high)
-                                    Log.i("AMPLITUDE", new Integer(recorder.getMaxAmplitude()).toString());
-                                    amp = new Integer(recorder.getMaxAmplitude()).toString();
-                                }
-
-                            }
-                        }
-                    }).start();
-                } else {
-                    setText("Start recording");
-                }
-            }
-        };
-
-        public RecordButton(Context ctx) {
-            super(ctx);
-            setText("Start recording");
-            setOnClickListener(clicker);
-        }
-    }
-
-    @Override
-    public void onCreate(Bundle icicle) {
-        super.onCreate(icicle);
-
-        // Record to the external cache directory for visibility
-        fileName = getExternalCacheDir().getAbsolutePath();
-        fileName += "/audiorecordtest.3gp";
-
-        ActivityCompat.requestPermissions(this, permissions, REQUEST_RECORD_AUDIO_PERMISSION);
-
-        LinearLayout ll = new LinearLayout(this);
-        recordButton = new RecordButton(this);
-        ll.addView(recordButton,
-                new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                        0));
-        final TextView display = new TextView(this);
-        Thread thread = new Thread() {
-
-            @Override
-            public void run() {
-                try {
-                    while (!thread.isInterrupted()) {
-                        Thread.sleep(250);
-                        runOnUiThread(new Runnable() {
-                            @Override
-                            public void run() {
-                                // update TextView here!
-                                display.setText(amp);
-                            }
-                        });
-                    }
-                } catch (InterruptedException e) {
-                }
-            }
-        };
-
-        thread.start();
-        ll.addView(display,
-                new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                        0));
-//        playButton = new PlayButton(this);
-//        ll.addView(playButton,
-//                new LinearLayout.LayoutParams(
-//                        ViewGroup.LayoutParams.WRAP_CONTENT,
-//                        ViewGroup.LayoutParams.WRAP_CONTENT,
-//                        0));
-        setContentView(ll);
     }
 
     @Override
@@ -201,10 +187,6 @@ public class MainActivity extends AppCompatActivity {
             recorder.release();
             recorder = null;
         }
-
-//        if (player != null) {
-//            player.release();
-//            player = null;
-//        }
     }
+
 }
