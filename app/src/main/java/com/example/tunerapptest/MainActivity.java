@@ -92,10 +92,11 @@ public class MainActivity extends AppCompatActivity {
                                 //display.setText("Intensity: " + intensity);
 
                                 //Fourier Transform
-                                if (amplitude >= 5000) {
+                                if (amplitude >= 2000) {
                                     intensityFunction.add(new Notes(intensity, time));
                                     for (int f = 0; f < guitarF.length; f++) {
-                                        if (calculateFT(intensityFunction, guitarF[f], time) > maxCenterOfMass) {
+                                        if (calculateFT(intensityFunction, guitarF[f], time) > maxCenterOfMass
+                                                && intensityFunction.size() >= 5) {
                                             maxCenterOfMass = calculateFT(intensityFunction, guitarF[f], time);
                                             frequency = f;
                                         }
@@ -140,13 +141,30 @@ public class MainActivity extends AppCompatActivity {
     private double calculateFT(ArrayList<Notes> intensityF, double frequency, float time) {
         ArrayList<Double> xCoordinate = new ArrayList<>();
         for (int i = 0; i < intensityF.size(); i++) {
-            xCoordinate.add(intensityF.get(i).getIntensity()*Math.pow(Math.E, -2*Math.PI*frequency*time));
+            //xCoordinate.add(intensityF.get(i).getIntensity()*Math.pow(Math.E, -2*Math.PI*frequency*time));
+
         }
         double sum = 0;
         for (int i = 0; i < xCoordinate.size(); i++) {
             sum += xCoordinate.get(i);
         }
         return sum / intensityF.size();
+    }
+
+    private double calculateIntegral(float time, ArrayList<Notes> intensity, double interval) {
+        double sum = 0;
+        for (int i = 0; i < intensity.size(); i++) {
+            if (i == 0) {
+                sum+=intensity.get(i).getIntensity();
+            } else if (i ==intensity.size()-1) {
+                sum+=intensity.get(i).getIntensity();
+            } else {
+                sum+=2*intensity.get(i).getIntensity()
+            }
+
+        }
+        return interval/2*(sum);
+
     }
 
     // Recording Methods
